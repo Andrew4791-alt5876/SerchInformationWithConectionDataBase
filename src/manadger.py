@@ -3,7 +3,7 @@ from typing import Any, cast
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
-from database_utils import conn_params
+from src.database_utils import conn_params
 
 
 class DBManager:
@@ -62,7 +62,7 @@ class DBManager:
 
     def get_aeroplanes_with_higher_speed(self) -> list[dict[str, Any]]:
         """Самолёты, скорость которых выше средней."""
-        return self._fetchall("""
+        return cast(list[dict[str, Any]], self._fetchall("""
             SELECT a.id,
                    a.aircraft_id,
                    a.callsign,
@@ -70,14 +70,17 @@ class DBManager:
                    a.velocity,
                    a.altitude,
                    a.on_ground,
-                   c.name_country AS country
+                   MAX(c.name_country) AS country
             FROM aircraft a
             LEFT JOIN countries c ON c.id_country = a.country_id
             WHERE a.velocity > (
-                SELECT AVG(velocity) FROM aircraft WHERE velocity IS NOT NULL
+                SELECT AVG(velocity)
+                FROM aircraft
+                WHERE velocity IS NOT NULL
             )
+            GROUP BY a.id
             ORDER BY a.velocity DESC;
-        """)
+        """))
 
     def get_aeroplanes_with_keyword(self, keyword: str) -> list[dict[str, Any]]:
         """Самолёты, в позывном которых содержится подстрока keyword."""
