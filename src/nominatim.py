@@ -27,15 +27,11 @@ class NominatimClient(APIClient):
         response.raise_for_status()
         return cast(dict[Any, Any], response.json())
 
-    def get_country_coordinates(self, country_name: list) -> list:
-        list_of_coord = []
-        for country in country_name:
-            try:
-                params = {"q": country, "format": "json", "limit": 1}
-                data = self._make_request("search", params, headers=self.headers)
-                coord_of_country = data[0]["boundingbox"]
-                list_of_coord.append(coord_of_country)
-                return list_of_coord
-            except (ValueError, IndexError, TypeError, KeyError):
-                return []
-        return list_of_coord
+    def get_country_coordinates(self, country_name: str) -> list:
+        try:
+            params = {"q": country_name, "format": "json", "limit": 1}
+            data = self._make_request("search", params, headers=self.headers)
+            coord_of_country = data[0]["boundingbox"]
+            return coord_of_country
+        except (ValueError, IndexError, TypeError, KeyError):
+            return []
