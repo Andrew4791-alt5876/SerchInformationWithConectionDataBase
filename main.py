@@ -1,9 +1,6 @@
 from datetime import datetime
-from typing import Any
-
 from data_countries import list_countries
 from database_utils import create_tables, insert_data_to_db
-from json_saver import JSONSaver
 from manadger import DBManager
 from src.aircrafts import Aircraft
 from src.nominatim import NominatimClient

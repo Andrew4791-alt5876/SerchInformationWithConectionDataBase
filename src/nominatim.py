@@ -31,7 +31,7 @@ class NominatimClient(APIClient):
         try:
             params = {"q": country_name, "format": "json", "limit": 1}
             data = self._make_request("search", params, headers=self.headers)
-            coord_of_country = data[0]["boundingbox"]
-            return coord_of_country
+            bbox = data[0]["boundingbox"]
+            return bbox or []
         except (ValueError, IndexError, TypeError, KeyError):
             return []

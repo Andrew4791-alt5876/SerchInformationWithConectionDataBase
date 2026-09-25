@@ -20,25 +20,24 @@ class OpenSkyClient(APIClient):
         return cast(dict[Any, Any], response.json())
 
     def get_aircraft_in_bbox(self, list_of_coord_country: list) -> list:
-        """
-        Получает список самолётов в прямоугольных областях (bounding box)
-        для каждой страны из списка.
-        """
+        """Получает самолёты для каждого bounding box из списка."""
         if not list_of_coord_country:
+            print("В запросе отсутствуют координаты страны!")
             return []
         all_aircraft: list = []
-        try:
-            lamin, lamax, lomin, lomax = (float(value) for value in list_of_coord_country[:4])
-            params = {
-                "lamin": lamin,
-                "lamax": lamax,
-                "lomin": lomin,
-                "lomax": lomax,
-            }
-            response = self.get_data(params=params)
-            states = response.get("states") or []
-            all_aircraft.extend(states)
-            time.sleep(1)  # уважаем rate limit OpenSky
-        except (ValueError, TypeError, KeyError, IndexError) as error:
-            return error
+        for coord in list_of_coord_country:
+            try:
+                lamin, lamax, lomin, lomax = coord[:4]
+                params = {
+                    "lamin": lamin,
+                    "lamax": lamax,
+                    "lomin": lomin,
+                    "lomax": lomax,
+                }
+                response = self.get_data(params=params)
+                states = response.get("states") or []
+                all_aircraft.extend(states)
+                time.sleep(1)
+            except Exception:
+                return []
         return all_aircraft
