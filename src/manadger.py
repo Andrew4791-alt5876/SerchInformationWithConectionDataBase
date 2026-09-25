@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -19,15 +19,16 @@ class DBManager:
                 return cur.fetchall()
 
     def get_countries_and_aeroplanes_count(self) -> list[dict[str, Any]]:
-        """Список всех стран и количество самолётов в их воздушном пространстве."""
-        return self._fetchall("""
-            SELECT c.name_country AS country,
-                   COUNT(a.id)    AS aeroplanes_count
-            FROM countries c
-            LEFT JOIN aircraft a ON a.country_id = c.id_country
-            GROUP BY c.name_country
-            ORDER BY aeroplanes_count DESC, country;
-        """)
+        with psycopg2.connect(**self._params) as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT c.name_country AS country,
+                    COUNT(a.id) AS aeroplanes_count FROM countries c
+                    LEFT JOIN aircraft a ON a.country_id = c.id_country
+                    GROUP BY c.name_country ORDER BY aeroplanes_count DESC,
+                    country;
+                    """)
+                return cast(list[dict[str, Any]], cur.fetchall())
 
     def get_all_aeroplanes(self) -> list[dict[str, Any]]:
         """Список всех воздушных судов."""
@@ -80,7 +81,8 @@ class DBManager:
 
     def get_aeroplanes_with_keyword(self, keyword: str) -> list[dict[str, Any]]:
         """Самолёты, в позывном которых содержится подстрока keyword."""
-        return self._fetchall("""
+        return self._fetchall(
+            """
             SELECT a.id,
                    a.aircraft_id,
                    a.callsign,
@@ -93,4 +95,6 @@ class DBManager:
             LEFT JOIN countries c ON c.id_country = a.country_id
             WHERE a.callsign ILIKE %s
             ORDER BY a.callsign;
-        """, (f"%{keyword}%",))
+        """,
+            (f"%{keyword}%",),
+        )

@@ -19,25 +19,18 @@ class OpenSkyClient(APIClient):
         response.raise_for_status()
         return cast(dict[Any, Any], response.json())
 
-    def get_aircraft_in_bbox(self, list_of_coord_country: list) -> list:
+    def get_aircraft_in_bbox(self, coord: list) -> list:
         """Получает самолёты для каждого bounding box из списка."""
-        if not list_of_coord_country:
+        if not coord:
             print("В запросе отсутствуют координаты страны!")
             return []
         all_aircraft: list = []
-        for coord in list_of_coord_country:
-            try:
-                lamin, lamax, lomin, lomax = coord[:4]
-                params = {
-                    "lamin": lamin,
-                    "lamax": lamax,
-                    "lomin": lomin,
-                    "lomax": lomax,
-                }
-                response = self.get_data(params=params)
-                states = response.get("states") or []
-                all_aircraft.extend(states)
-                time.sleep(1)
-            except Exception:
-                return []
+        try:
+            params = {"lamin": coord[0], "lamax": coord[1], "lomin": coord[2], "lomax": coord[3]}
+            response = self.get_data(params=params)
+            states = response.get("states") or []
+            all_aircraft.extend(states)
+            time.sleep(1)
+        except Exception:
+            return []
         return all_aircraft

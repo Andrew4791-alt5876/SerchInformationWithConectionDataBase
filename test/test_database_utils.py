@@ -2,8 +2,8 @@ import pytest
 
 import database_utils as db
 
-
 # ---------- фейковые объекты psycopg2 ----------
+
 
 class FakeCursor:
     def __init__(self, fetchone_results=None):
@@ -66,6 +66,7 @@ def fake_db(monkeypatch):
 
 # ---------- тестовые данные ----------
 
+
 def make_plane(
     aircraft_id="abc123",
     callsign="TEST123",
@@ -89,6 +90,7 @@ def make_plane(
 
 
 # ---------- create_tables ----------
+
 
 def test_create_tables_executes_drop_and_create(fake_db):
     db.create_tables()
@@ -142,6 +144,7 @@ def test_create_tables_aircraft_has_columns(fake_db):
 
 # ---------- insert_data_to_db: страна уже есть ----------
 
+
 def test_insert_country_exists_uses_existing_id(fake_db):
     fake_db.fetchone_results = [(7,)]  # SELECT id_country -> найдено
     planes = [make_plane()]
@@ -167,6 +170,7 @@ def test_insert_country_exists_uses_existing_id(fake_db):
 
 # ---------- insert_data_to_db: страны ещё нет ----------
 
+
 def test_insert_country_not_exists_creates_it(fake_db):
     fake_db.fetchone_results = [None, (3,)]  # SELECT -> нет, INSERT -> id=3
     planes = [make_plane()]
@@ -189,6 +193,7 @@ def test_insert_country_not_exists_creates_it(fake_db):
 
 # ---------- один country_id для всех самолётов ----------
 
+
 def test_all_planes_get_same_country_id(fake_db):
     fake_db.fetchone_results = [(5,)]
     planes = [
@@ -209,6 +214,7 @@ def test_all_planes_get_same_country_id(fake_db):
 
 # ---------- самолётов нет ----------
 
+
 def test_empty_aircraft_list_does_not_insert_aircraft(fake_db):
     fake_db.fetchone_results = [(1,)]
 
@@ -220,6 +226,7 @@ def test_empty_aircraft_list_does_not_insert_aircraft(fake_db):
 
 
 # ---------- пустой список стран/самолётов: страна всё равно заводится ----------
+
 
 def test_empty_planes_still_inserts_country(fake_db):
     fake_db.fetchone_results = [None, (9,)]  # страны нет -> создаётся
@@ -234,6 +241,7 @@ def test_empty_planes_still_inserts_country(fake_db):
 
 
 # ---------- порядок параметров совпадает с колонками ----------
+
 
 def test_insert_params_order_matches_columns(fake_db):
     fake_db.fetchone_results = [(1,)]

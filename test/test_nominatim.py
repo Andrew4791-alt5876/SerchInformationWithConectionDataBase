@@ -4,8 +4,8 @@ import pytest
 
 from src.nominatim import NominatimClient
 
-
 # ---------- фикстуры ----------
+
 
 @pytest.fixture
 def client():
@@ -21,12 +21,13 @@ def fake_make_request(monkeypatch):
         return fake.responses.pop(0) if fake.responses else []
 
     fake.responses = []
-    fake.calls = calls          # ← добавить эту строку
+    fake.calls = calls  # ← добавить эту строку
     monkeypatch.setattr(NominatimClient, "_make_request", fake)
     return fake
 
 
 # ---------- конструктор ----------
+
 
 def test_client_uses_correct_base_url(client):
     assert client.base_url == "https://nominatim.openstreetmap.org"
@@ -39,10 +40,9 @@ def test_client_sets_user_agent(client):
 
 # ---------- get_country_coordinates: успех ----------
 
+
 def test_get_country_coordinates_returns_bbox(client, fake_make_request):
-    fake_make_request.responses = [
-        [{"boundingbox": ["47.27", "55.05", "5.86", "15.03"]}]
-    ]
+    fake_make_request.responses = [[{"boundingbox": ["47.27", "55.05", "5.86", "15.03"]}]]
 
     result = client.get_country_coordinates("Germany")
 
@@ -50,9 +50,7 @@ def test_get_country_coordinates_returns_bbox(client, fake_make_request):
 
 
 def test_get_country_coordinates_sends_expected_params(client, fake_make_request):
-    fake_make_request.responses = [
-        [{"boundingbox": ["1", "2", "3", "4"]}]
-    ]
+    fake_make_request.responses = [[{"boundingbox": ["1", "2", "3", "4"]}]]
 
     client.get_country_coordinates("France")
 
@@ -65,18 +63,17 @@ def test_get_country_coordinates_sends_expected_params(client, fake_make_request
 
 # ---------- get_country_coordinates: ошибки ----------
 
+
 @pytest.mark.parametrize(
     "response",
     [
-        [],                                         # пустой ответ -> IndexError
-        [{}],                                       # нет ключа -> KeyError
-        [{"boundingbox": None}],                    # вернёт None, но не упадёт
-        None,                                       # TypeError при data[0]
+        [],  # пустой ответ -> IndexError
+        [{}],  # нет ключа -> KeyError
+        [{"boundingbox": None}],  # вернёт None, но не упадёт
+        None,  # TypeError при data[0]
     ],
 )
-def test_get_country_coordinates_returns_empty_on_bad_response(
-    client, fake_make_request, response
-):
+def test_get_country_coordinates_returns_empty_on_bad_response(client, fake_make_request, response):
     fake_make_request.responses = [response]
 
     result = client.get_country_coordinates("Atlantis")
@@ -84,9 +81,7 @@ def test_get_country_coordinates_returns_empty_on_bad_response(
     assert result == []
 
 
-def test_get_country_coordinates_returns_empty_on_value_error(
-    client, fake_make_request
-):
+def test_get_country_coordinates_returns_empty_on_value_error(client, fake_make_request):
     fake_make_request.responses = ["не список"]
 
     # data[0] на строке даст "н" (str), у него нет ["boundingbox"] -> TypeError
@@ -97,10 +92,9 @@ def test_get_country_coordinates_returns_empty_on_value_error(
 
 # ---------- get_country_coordinates: возвращаемый тип ----------
 
+
 def test_get_country_coordinates_returns_list(client, fake_make_request):
-    fake_make_request.responses = [
-        [{"boundingbox": ["1.0", "2.0", "3.0", "4.0"]}]
-    ]
+    fake_make_request.responses = [[{"boundingbox": ["1.0", "2.0", "3.0", "4.0"]}]]
 
     result = client.get_country_coordinates("Germany")
 
@@ -109,6 +103,7 @@ def test_get_country_coordinates_returns_list(client, fake_make_request):
 
 
 # ---------- rate limit ----------
+
 
 def test_rate_limit_sleeps_between_requests(client, monkeypatch):
     """Если прошло меньше секунды, _rate_limit должен уснуть."""
@@ -138,10 +133,6 @@ def test_rate_limit_does_not_sleep_if_enough_time_passed(client, monkeypatch):
     client._rate_limit()
 
     assert slept == []
-
-
-
-
 
 
 # from unittest.mock import Mock, patch

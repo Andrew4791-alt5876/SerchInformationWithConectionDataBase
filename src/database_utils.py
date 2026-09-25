@@ -1,10 +1,11 @@
 import os
-from dotenv import load_dotenv
-import psycopg2
+from typing import Any
 
+import psycopg2
+from dotenv import load_dotenv
 
 load_dotenv()
-conn_params = {
+conn_params: dict[str, Any] = {
     "dbname": os.environ["DB_NAME"],
     "user": os.environ["DB_USER"],
     "password": os.environ["DB_PASSWORD"],
@@ -82,3 +83,50 @@ def insert_data_to_db(dict_of_aircraft: list[dict], country: str) -> None:
                     ),
                 )
     print(f"Самолёты страны {country!r} успешно загружены!")
+
+
+# def insert_data_to_db(dict_of_aircraft: list[dict], country: str) -> None:
+#     """Записывает страну и все её самолёты в БД."""
+#     with psycopg2.connect(**conn_params) as conn:
+#         with conn.cursor() as cur:
+#             cur.execute(
+#                 "SELECT id_country FROM countries WHERE name_country = %s;",
+#                 (country,),
+#             )
+#             result = cur.fetchone()
+#             if result:
+#                 country_id = result[0]
+#             else:
+#                 cur.execute(
+#                     "INSERT INTO countries (name_country) VALUES (%s) " "RETURNING id_country;",
+#                     (country,),
+#                 )
+#                 country_id = cur.fetchone()[0]
+#
+#             for plane in dict_of_aircraft:
+#                 cur.execute(
+#                     """
+#                     INSERT INTO aircraft (
+#                         aircraft_id, callsign, origin_country,
+#                         latitude, longitude, vertical_rate,
+#                         velocity, altitude, true_track,
+#                         squawk, on_ground, country_id
+#                     ) VALUES (%s, %s, %s, %s, %s, %s,
+#                               %s, %s, %s, %s, %s, %s);
+#                     """,
+#                     (
+#                         plane["id_aircraft"],
+#                         plane["callsign"],
+#                         plane["country"],
+#                         plane["latitude"],
+#                         plane["longitude"],
+#                         plane["vertical_rate"],
+#                         plane["velocity"],
+#                         plane["altitude"],
+#                         plane["true_track"],
+#                         plane["squawk"],
+#                         plane["on_ground"],
+#                         country_id,
+#                     ),
+#                 )
+#     print(f"Самолёты страны {country!r} успешно загружены!")
