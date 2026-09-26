@@ -44,14 +44,13 @@
 
 ```
 SerchInformationWithConectionDataBase/
-├── main.py                  # точка входа, сценарий работы программы
-├── manadger.py              # класс DBManager — запросы к БД
-├── database_utils.py        # создание таблиц, вставка данных, параметры подключения
-├── data_countries.py        # список доступных стран
+
 ├── src/
 │   ├── __init__.py
-│   ├── base_api.py          # базовый класс APIClient
 │   ├── aircrafts.py         # модель Aircraft
+│   ├── base_api.py          # базовый класс APIClient
+│   ├── database_utils.py
+│   ├── manadger.py          # класс DBManager — запросы к БД
 │   ├── nominatim.py         # клиент Nominatim
 │   └── openSky_network.py   # клиент OpenSky Network
 ├── test/
@@ -60,11 +59,12 @@ SerchInformationWithConectionDataBase/
 │   ├── test_base_api.py
 │   ├── test_database_utils.py
 │   ├── test_nominatim.py
-│   ├── test_openSky_network.py
-│   └── test_main.py
+│   └── test_openSky_network.py
 ├── pyproject.toml           # зависимости и конфиги (poetry, mypy, pytest, black, isort)
 ├── .env                     # секреты (не коммитится)
 ├── .env.example             # шаблон переменных окружения
+├── data_countries.py        # список доступных стран
+├── main.py                  # точка входа, сценарий работы программы
 └── README.md
 ```
 
