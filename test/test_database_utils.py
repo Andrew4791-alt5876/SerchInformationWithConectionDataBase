@@ -1,6 +1,6 @@
 import pytest
 
-import database_utils as db
+import src.database_utils as db
 
 # ---------- фейковые объекты psycopg2 ----------
 
