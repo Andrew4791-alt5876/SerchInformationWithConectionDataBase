@@ -1,185 +1,208 @@
-from unittest.mock import MagicMock, patch
+from __future__ import annotations
+
+from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 import requests
 
 from src.openSky_network import OpenSkyClient
 
+# ---------- фикстуры ----------
+
 
 @pytest.fixture
-def client() -> OpenSkyClient:
-    return OpenSkyClient()
+def session() -> Any:
+    """Мок requests.Session. Any — чтобы mypy не проверял атрибуты мока."""
+    return MagicMock()
 
 
-# ============================================================
-# get_data
-# ============================================================
+@pytest.fixture
+def client(monkeypatch: pytest.MonkeyPatch, session: Any) -> OpenSkyClient:
+    """OpenSkyClient с замоканным requests.Session и заглушённым sleep."""
+    monkeypatch.setattr("time.sleep", lambda _: None)
+    c = OpenSkyClient()
+    monkeypatch.setattr(c, "session", session)
+    return c
 
 
-def test_get_data_builds_url_and_params(client):
-    client.session = MagicMock()
-    resp = MagicMock()
-    resp.json.return_value = {"states": []}
-    client.session.get.return_value = resp
-
-    result = client.get_data(params={"lamin": 1, "lamax": 2, "lomin": 3, "lomax": 4})
-
-    client.session.get.assert_called_once_with(
-        "https://opensky-network.org/api/states/all",
-        params={"lamin": 1, "lamax": 2, "lomin": 3, "lomax": 4},
-    )
-    resp.raise_for_status.assert_called_once()
-    assert result == {"states": []}
+@pytest.fixture
+def bbox() -> list[float]:
+    """Bounding box Германии: [lamin, lamax, lomin, lomax]."""
+    return [47.27, 55.06, 5.87, 15.04]
 
 
-def test_get_data_passes_none_when_params_missing(client):
-    client.session = MagicMock()
-    client.session.get.return_value = MagicMock(json=lambda: {})
+def make_response(json_data: Any, status_ok: bool = True) -> Any:
+    """Фейковый requests.Response."""
+    response = MagicMock()
+    response.json.return_value = json_data
+    if status_ok:
+        response.raise_for_status.return_value = None
+    else:
+        response.raise_for_status.side_effect = requests.HTTPError("500 Server Error")
+    return response
 
-    client.get_data()
 
-    client.session.get.assert_called_once_with(
-        "https://opensky-network.org/api/states/all",
-        params=None,
-    )
+# ---------- инициализация ----------
 
 
-def test_get_data_raises_on_http_error(client):
-    client.session = MagicMock()
-    resp = MagicMock()
-    resp.raise_for_status.side_effect = requests.HTTPError("500")
-    client.session.get.return_value = resp
+class TestOpenSkyClientInit:
+    def test_default_endpoint(self) -> None:
+        c = OpenSkyClient()
+        assert c.endpoint == "/states/all"
 
-    with pytest.raises(requests.HTTPError):
+    def test_custom_endpoint(self) -> None:
+        c = OpenSkyClient(endpoint="/states/other")
+        assert c.endpoint == "/states/other"
+
+    def test_base_url(self) -> None:
+        c = OpenSkyClient()
+        assert c.base_url == "https://opensky-network.org/api"
+
+
+# ---------- get_data ----------
+
+
+class TestOpenSkyClientGetData:
+    def test_calls_correct_url(self, client: OpenSkyClient, session: Any) -> None:
+        session.get.return_value = make_response({"states": []})
         client.get_data()
+        session.get.assert_called_once_with(
+            "https://opensky-network.org/api/states/all",
+            params=None,
+        )
+
+    def test_passes_params(self, client: OpenSkyClient, session: Any) -> None:
+        session.get.return_value = make_response({"states": []})
+        params = {"lamin": 47.27, "lamax": 55.06}
+        client.get_data(params=params)
+        session.get.assert_called_once_with(
+            "https://opensky-network.org/api/states/all",
+            params=params,
+        )
+
+    def test_returns_json(self, client: OpenSkyClient, session: Any) -> None:
+        payload = {"time": 1700000000, "states": [["abc"]]}
+        session.get.return_value = make_response(payload)
+        result = client.get_data()
+        assert result == payload
+
+    def test_raises_for_status(self, client: OpenSkyClient, session: Any) -> None:
+        session.get.return_value = make_response({}, status_ok=False)
+        with pytest.raises(requests.HTTPError):
+            client.get_data()
+
+    def test_propagates_connection_error(self, client: OpenSkyClient, session: Any) -> None:
+        session.get.side_effect = requests.ConnectionError("no network")
+        with pytest.raises(requests.ConnectionError):
+            client.get_data()
 
 
-def test_get_data_raises_on_connection_error(client):
-    client.session = MagicMock()
-    client.session.get.side_effect = requests.ConnectionError("boom")
-
-    with pytest.raises(requests.ConnectionError):
-        client.get_data()
+# ---------- get_aircraft_in_bbox: пустые координаты ----------
 
 
-# ============================================================
-# get_aircraft_in_bbox — пустой вход
-# ============================================================
+class TestGetAircraftInBboxEmptyCoords:
+    def test_empty_list_returns_empty(self, client: OpenSkyClient, session: Any) -> None:
+        assert client.get_aircraft_in_bbox([]) == []
+
+    def test_empty_list_does_not_call_api(self, client: OpenSkyClient, session: Any) -> None:
+        client.get_aircraft_in_bbox([])
+        session.get.assert_not_called()
+
+    def test_empty_list_prints_message(
+        self,
+        client: OpenSkyClient,
+        session: Any,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        client.get_aircraft_in_bbox([])
+        out = capsys.readouterr().out
+        assert "отсутствуют координаты" in out
 
 
-def test_bbox_empty_coord_returns_empty_and_prints(client, capsys):
-    result = client.get_aircraft_in_bbox([])
-
-    assert result == []
-    assert "отсутствуют координаты" in capsys.readouterr().out
+# ---------- get_aircraft_in_bbox: успешные сценарии ----------
 
 
-def test_bbox_empty_coord_does_not_call_get_data(client):
-    client.get_data = MagicMock()
+class TestGetAircraftInBboxSuccess:
+    def test_builds_params_from_coord(self, client: OpenSkyClient, session: Any, bbox: list[float]) -> None:
+        session.get.return_value = make_response({"states": []})
+        client.get_aircraft_in_bbox(bbox)
+        session.get.assert_called_once_with(
+            "https://opensky-network.org/api/states/all",
+            params={
+                "lamin": bbox[0],
+                "lamax": bbox[1],
+                "lomin": bbox[2],
+                "lomax": bbox[3],
+            },
+        )
 
-    client.get_aircraft_in_bbox([])
+    def test_returns_states(self, client: OpenSkyClient, session: Any, bbox: list[float]) -> None:
+        states = [["abc123"], ["def456"]]
+        session.get.return_value = make_response({"states": states})
+        result = client.get_aircraft_in_bbox(bbox)
+        assert result == states
 
-    client.get_data.assert_not_called()
+    def test_returns_empty_when_states_missing(self, client: OpenSkyClient, session: Any, bbox: list[float]) -> None:
+        session.get.return_value = make_response({"time": 123})
+        result = client.get_aircraft_in_bbox(bbox)
+        assert result == []
 
+    def test_returns_empty_when_states_none(self, client: OpenSkyClient, session: Any, bbox: list[float]) -> None:
+        session.get.return_value = make_response({"states": None})
+        result = client.get_aircraft_in_bbox(bbox)
+        assert result == []
 
-# ============================================================
-# get_aircraft_in_bbox — успешный сценарий
-# ============================================================
+    def test_sleeps_one_second(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        session: Any,
+        bbox: list[float],
+    ) -> None:
+        sleep_calls: list[float] = []
+        monkeypatch.setattr("time.sleep", lambda s: sleep_calls.append(s))
+        c = OpenSkyClient()
+        monkeypatch.setattr(c, "session", session)
+        session.get.return_value = make_response({"states": []})
+        c.get_aircraft_in_bbox(bbox)
 
-
-def test_bbox_returns_states_from_response(client):
-    states = [["abc", "CALL1"], ["def", "CALL2"]]
-    client.get_data = MagicMock(return_value={"states": states})
-
-    with patch("time.sleep"):
-        result = client.get_aircraft_in_bbox([10.0, 20.0, 30.0, 40.0])
-
-    assert result == states
-
-
-def test_bbox_passes_correct_params_to_get_data(client):
-    client.get_data = MagicMock(return_value={"states": []})
-
-    with patch("time.sleep"):
-        client.get_aircraft_in_bbox([10.0, 20.0, 30.0, 40.0])
-
-    client.get_data.assert_called_once_with(params={"lamin": 10.0, "lamax": 20.0, "lomin": 30.0, "lomax": 40.0})
-
-
-def test_bbox_sleeps_once_after_success(client):
-    client.get_data = MagicMock(return_value={"states": []})
-
-    with patch("time.sleep") as mock_sleep:
-        client.get_aircraft_in_bbox([1, 2, 3, 4])
-
-    mock_sleep.assert_called_once_with(1)
-
-
-def test_bbox_ignores_extra_elements_in_coord(client):
-    """coord из 5+ элементов — лишние игнорируются (используются только [0:4])."""
-    client.get_data = MagicMock(return_value={"states": []})
-
-    with patch("time.sleep"):
-        client.get_aircraft_in_bbox([1, 2, 3, 4, 5, 6])
-
-    client.get_data.assert_called_once_with(params={"lamin": 1, "lamax": 2, "lomin": 3, "lomax": 4})
+        assert sleep_calls == [1]
 
 
-# ============================================================
-# get_aircraft_in_bbox — граничные случаи ответа
-# ============================================================
+# ---------- get_aircraft_in_bbox: ошибки ----------
 
 
-def test_bbox_returns_empty_when_states_key_missing(client):
-    client.get_data = MagicMock(return_value={})
-    with patch("time.sleep"):
-        result = client.get_aircraft_in_bbox([1, 2, 3, 4])
-    assert result == []
+class TestGetAircraftInBboxErrors:
+    def test_returns_empty_on_http_error(self, client: OpenSkyClient, session: Any, bbox: list[float]) -> None:
+        session.get.return_value = make_response({}, status_ok=False)
+        result = client.get_aircraft_in_bbox(bbox)
+        assert result == []
 
+    def test_returns_empty_on_connection_error(self, client: OpenSkyClient, session: Any, bbox: list[float]) -> None:
+        session.get.side_effect = requests.ConnectionError("no network")
+        result = client.get_aircraft_in_bbox(bbox)
+        assert result == []
 
-def test_bbox_returns_empty_when_states_is_none(client):
-    client.get_data = MagicMock(return_value={"states": None})
-    with patch("time.sleep"):
-        result = client.get_aircraft_in_bbox([1, 2, 3, 4])
-    assert result == []
+    def test_returns_empty_on_timeout(self, client: OpenSkyClient, session: Any, bbox: list[float]) -> None:
+        session.get.side_effect = requests.Timeout("timeout")
+        result = client.get_aircraft_in_bbox(bbox)
+        assert result == []
 
+    def test_returns_empty_on_any_exception(self, client: OpenSkyClient, session: Any, bbox: list[float]) -> None:
+        session.get.side_effect = ValueError("something else")
+        result = client.get_aircraft_in_bbox(bbox)
+        assert result == []
 
-def test_bbox_returns_empty_when_states_is_empty_list(client):
-    client.get_data = MagicMock(return_value={"states": []})
-    with patch("time.sleep"):
-        result = client.get_aircraft_in_bbox([1, 2, 3, 4])
-    assert result == []
-
-
-# ============================================================
-# get_aircraft_in_bbox — ошибки (текущее поведение: проглотить и вернуть [])
-# ============================================================
-
-
-def test_bbox_returns_empty_on_get_data_exception(client):
-    client.get_data = MagicMock(side_effect=requests.ConnectionError("boom"))
-    with patch("time.sleep"):
-        result = client.get_aircraft_in_bbox([1, 2, 3, 4])
-    assert result == []
-
-
-def test_bbox_returns_empty_on_http_error(client):
-    client.get_data = MagicMock(side_effect=requests.HTTPError("500"))
-    with patch("time.sleep"):
-        result = client.get_aircraft_in_bbox([1, 2, 3, 4])
-    assert result == []
-
-
-def test_bbox_returns_empty_on_short_coord(client):
-    """coord из 2 элементов → IndexError внутри try → []."""
-    client.get_data = MagicMock(return_value={"states": [["x"]]})
-    with patch("time.sleep"):
-        result = client.get_aircraft_in_bbox([1, 2])
-    assert result == []
-
-
-def test_bbox_does_not_sleep_on_error(client):
-    client.get_data = MagicMock(side_effect=requests.ConnectionError("boom"))
-    with patch("time.sleep") as mock_sleep:
-        client.get_aircraft_in_bbox([1, 2, 3, 4])
-    mock_sleep.assert_not_called()
+    def test_does_not_sleep_on_error(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        session: Any,
+        bbox: list[float],
+    ) -> None:
+        sleep_calls: list[float] = []
+        monkeypatch.setattr("time.sleep", lambda s: sleep_calls.append(s))
+        c = OpenSkyClient()
+        monkeypatch.setattr(c, "session", session)
+        session.get.side_effect = requests.ConnectionError("no network")
+        c.get_aircraft_in_bbox(bbox)
+        assert sleep_calls == []

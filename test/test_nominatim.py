@@ -1,6 +1,10 @@
-import time
+from __future__ import annotations
+
+from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
+import requests
 
 from src.nominatim import NominatimClient
 
@@ -8,266 +12,232 @@ from src.nominatim import NominatimClient
 
 
 @pytest.fixture
-def client():
-    return NominatimClient()
+def session() -> Any:
+    """Мок requests.Session. Any — чтобы mypy не проверял атрибуты мока."""
+    return MagicMock()
 
 
 @pytest.fixture
-def fake_make_request(monkeypatch):
-    calls = []
-
-    def fake(self, endpoint, params=None, headers=None):
-        calls.append({"endpoint": endpoint, "params": params, "headers": headers})
-        return fake.responses.pop(0) if fake.responses else []
-
-    fake.responses = []
-    fake.calls = calls  # ← добавить эту строку
-    monkeypatch.setattr(NominatimClient, "_make_request", fake)
-    return fake
+def client(monkeypatch: pytest.MonkeyPatch, session: Any) -> NominatimClient:
+    """Клиент с замоканной сессией и заглушённым sleep."""
+    monkeypatch.setattr("time.sleep", lambda _: None)
+    c = NominatimClient()
+    monkeypatch.setattr(c, "session", session)
+    return c
 
 
-# ---------- конструктор ----------
+def make_response(json_data: Any, status_ok: bool = True) -> Any:
+    """Фейковый requests.Response."""
+    response = MagicMock()
+    response.json.return_value = json_data
+    if status_ok:
+        response.raise_for_status.return_value = None
+    else:
+        response.raise_for_status.side_effect = requests.HTTPError("500 Server Error")
+    return response
 
 
-def test_client_uses_correct_base_url(client):
-    assert client.base_url == "https://nominatim.openstreetmap.org"
+# ---------- __init__ ----------
 
 
-def test_client_sets_user_agent(client):
-    assert "User-Agent" in client.headers
-    assert "MyAircraftTracker" in client.headers["User-Agent"]
+class TestNominatimInit:
+    def test_default_endpoint(self) -> None:
+        assert NominatimClient().endpoint == "/search"
+
+    def test_custom_endpoint(self) -> None:
+        assert NominatimClient(endpoint="/lookup").endpoint == "/lookup"
+
+    def test_base_url(self) -> None:
+        assert NominatimClient().base_url == "https://nominatim.openstreetmap.org"
+
+    def test_user_agent_header_is_set(self) -> None:
+        c = NominatimClient()
+        assert "User-Agent" in c.headers
+        assert "MyAircraftTracker" in c.headers["User-Agent"]
+
+    def test_last_request_time_starts_at_zero(self) -> None:
+        assert NominatimClient()._last_request_time == 0.0
+
+
+# ---------- _rate_limit ----------
+
+
+class TestRateLimit:
+    def test_first_call_does_not_sleep(self, monkeypatch: pytest.MonkeyPatch, client: NominatimClient) -> None:
+        sleep_calls: list[float] = []
+        monkeypatch.setattr("time.sleep", lambda s: sleep_calls.append(s))
+        monkeypatch.setattr("time.time", lambda: 100.0)
+        client._rate_limit()
+        assert sleep_calls == []
+        assert client._last_request_time == 100.0
+
+    def test_second_call_sleeps_remaining_time(self, monkeypatch: pytest.MonkeyPatch, client: NominatimClient) -> None:
+        sleep_calls: list[float] = []
+        monkeypatch.setattr("time.sleep", lambda s: sleep_calls.append(s))
+
+        times = iter([100.0, 100.0, 100.3, 100.3])
+        monkeypatch.setattr("time.time", lambda: next(times))
+
+        client._rate_limit()  # now=100.0, last=100.0, без сна
+        client._rate_limit()  # now=100.3, 0.3<1 → sleep(0.7), last=100.3
+
+        assert sleep_calls == [pytest.approx(0.7)]
+
+    def test_no_sleep_when_more_than_one_second_passed(
+        self, monkeypatch: pytest.MonkeyPatch, client: NominatimClient
+    ) -> None:
+        sleep_calls: list[float] = []
+        monkeypatch.setattr("time.sleep", lambda s: sleep_calls.append(s))
+
+        times = iter([100.0, 100.0, 102.5, 102.5])
+        monkeypatch.setattr("time.time", lambda: next(times))
+
+        client._rate_limit()  # now=100.0, last=100.0
+        client._rate_limit()  # now=102.5, 2.5>1 → без сна
+
+        assert sleep_calls == []
+
+    def test_updates_last_request_time(self, monkeypatch: pytest.MonkeyPatch, client: NominatimClient) -> None:
+        monkeypatch.setattr("time.sleep", lambda _: None)
+
+        times = iter([100.0, 100.0, 100.5, 101.0])
+        monkeypatch.setattr("time.time", lambda: next(times))
+
+        client._rate_limit()  # now=100.0, last=100.0
+        client._rate_limit()  # now=100.5, sleep(0.5), last=101.0
+
+        assert client._last_request_time == 101.0
+
+
+# ---------- get_data ----------
+
+
+class TestGetData:
+    def test_calls_correct_url(self, client: NominatimClient, session: Any) -> None:
+        session.get.return_value = make_response([])
+        client.get_data()
+        session.get.assert_called_once_with(
+            "https://nominatim.openstreetmap.org/search",
+            params=None,
+        )
+
+    def test_passes_params(self, client: NominatimClient, session: Any) -> None:
+        session.get.return_value = make_response([])
+        params = {"q": "Germany", "format": "json", "limit": 1}
+        client.get_data(params=params)
+        session.get.assert_called_once_with(
+            "https://nominatim.openstreetmap.org/search",
+            params=params,
+        )
+
+    def test_returns_json(self, client: NominatimClient, session: Any) -> None:
+        payload = [{"display_name": "Germany", "boundingbox": ["47.27", "55.06", "5.87", "15.04"]}]
+        session.get.return_value = make_response(payload)
+        assert client.get_data() == payload
+
+    def test_raises_for_status(self, client: NominatimClient, session: Any) -> None:
+        session.get.return_value = make_response([], status_ok=False)
+        with pytest.raises(requests.HTTPError):
+            client.get_data()
+
+    def test_propagates_connection_error(self, client: NominatimClient, session: Any) -> None:
+        session.get.side_effect = requests.ConnectionError("no network")
+        with pytest.raises(requests.ConnectionError):
+            client.get_data()
 
 
 # ---------- get_country_coordinates: успех ----------
 
 
-def test_get_country_coordinates_returns_bbox(client, fake_make_request):
-    fake_make_request.responses = [[{"boundingbox": ["47.27", "55.05", "5.86", "15.03"]}]]
+class TestGetCountryCoordinatesSuccess:
+    def test_returns_bbox(self, monkeypatch: pytest.MonkeyPatch, client: NominatimClient) -> None:
+        bbox = ["47.27", "55.06", "5.87", "15.04"]
+        monkeypatch.setattr(
+            client,
+            "_make_request",
+            lambda *a, **kw: [{"boundingbox": bbox}],
+        )
 
-    result = client.get_country_coordinates("Germany")
+        assert client.get_country_coordinates("Germany") == bbox
 
-    assert result == ["47.27", "55.05", "5.86", "15.03"]
+    def test_passes_search_endpoint_and_params(self, monkeypatch: pytest.MonkeyPatch, client: NominatimClient) -> None:
+        captured: dict[str, Any] = {}
 
+        def fake(endpoint: str, params: Any, headers: Any = None) -> Any:
+            captured["endpoint"] = endpoint
+            captured["params"] = params
+            captured["headers"] = headers
+            return [{"boundingbox": ["1", "2", "3", "4"]}]
 
-def test_get_country_coordinates_sends_expected_params(client, fake_make_request):
-    fake_make_request.responses = [[{"boundingbox": ["1", "2", "3", "4"]}]]
+        monkeypatch.setattr(client, "_make_request", fake)
 
-    client.get_country_coordinates("France")
+        client.get_country_coordinates("Germany")
 
-    assert len(fake_make_request.calls) == 1
-    call = fake_make_request.calls[0]
-    assert call["endpoint"] == "search"
-    assert call["params"] == {"q": "France", "format": "json", "limit": 1}
-    assert call["headers"]["User-Agent"].startswith("MyAircraftTracker")
+        assert captured["endpoint"] == "search"
+        assert captured["params"] == {"q": "Germany", "format": "json", "limit": 1}
+        assert captured["headers"] == client.headers
 
+    def test_takes_first_result(self, monkeypatch: pytest.MonkeyPatch, client: NominatimClient) -> None:
+        monkeypatch.setattr(
+            client,
+            "_make_request",
+            lambda *a, **kw: [
+                {"boundingbox": ["1", "2", "3", "4"]},
+                {"boundingbox": ["5", "6", "7", "8"]},
+            ],
+        )
 
-# ---------- get_country_coordinates: ошибки ----------
-
-
-@pytest.mark.parametrize(
-    "response",
-    [
-        [],  # пустой ответ -> IndexError
-        [{}],  # нет ключа -> KeyError
-        [{"boundingbox": None}],  # вернёт None, но не упадёт
-        None,  # TypeError при data[0]
-    ],
-)
-def test_get_country_coordinates_returns_empty_on_bad_response(client, fake_make_request, response):
-    fake_make_request.responses = [response]
-
-    result = client.get_country_coordinates("Atlantis")
-
-    assert result == []
-
-
-def test_get_country_coordinates_returns_empty_on_value_error(client, fake_make_request):
-    fake_make_request.responses = ["не список"]
-
-    # data[0] на строке даст "н" (str), у него нет ["boundingbox"] -> TypeError
-    result = client.get_country_coordinates("X")
-
-    assert result == []
+        assert client.get_country_coordinates("Germany") == ["1", "2", "3", "4"]
 
 
-# ---------- get_country_coordinates: возвращаемый тип ----------
+# ---------- get_country_coordinates: краевые и ошибочные ----------
 
 
-def test_get_country_coordinates_returns_list(client, fake_make_request):
-    fake_make_request.responses = [[{"boundingbox": ["1.0", "2.0", "3.0", "4.0"]}]]
+class TestGetCountryCoordinatesErrors:
+    def test_empty_list_returns_empty(self, monkeypatch: pytest.MonkeyPatch, client: NominatimClient) -> None:
+        monkeypatch.setattr(client, "_make_request", lambda *a, **kw: [])
 
-    result = client.get_country_coordinates("Germany")
+        assert client.get_country_coordinates("Germany") == []
 
-    assert isinstance(result, list)
-    assert len(result) == 4
+    def test_missing_boundingbox_key_returns_empty(
+        self, monkeypatch: pytest.MonkeyPatch, client: NominatimClient
+    ) -> None:
+        monkeypatch.setattr(client, "_make_request", lambda *a, **kw: [{"display_name": "Germany"}])
 
+        assert client.get_country_coordinates("Germany") == []
 
-# ---------- rate limit ----------
+    def test_none_boundingbox_returns_empty(self, monkeypatch: pytest.MonkeyPatch, client: NominatimClient) -> None:
+        monkeypatch.setattr(client, "_make_request", lambda *a, **kw: [{"boundingbox": None}])
 
+        assert client.get_country_coordinates("Germany") == []
 
-def test_rate_limit_sleeps_between_requests(client, monkeypatch):
-    """Если прошло меньше секунды, _rate_limit должен уснуть."""
-    slept = []
+    def test_empty_boundingbox_returns_empty(self, monkeypatch: pytest.MonkeyPatch, client: NominatimClient) -> None:
+        monkeypatch.setattr(client, "_make_request", lambda *a, **kw: [{"boundingbox": []}])
 
-    def fake_sleep(seconds):
-        slept.append(seconds)
+        assert client.get_country_coordinates("Germany") == []
 
-    monkeypatch.setattr(time, "sleep", fake_sleep)
-    client._last_request_time = time.time()  # только что был запрос
+    @pytest.mark.parametrize(
+        "exc",
+        [ValueError("v"), IndexError("i"), TypeError("t"), KeyError("k")],
+    )
+    def test_handled_exceptions_return_empty(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        client: NominatimClient,
+        exc: BaseException,
+    ) -> None:
+        def boom(*a: Any, **kw: Any) -> Any:
+            raise exc
 
-    client._rate_limit()
+        monkeypatch.setattr(client, "_make_request", boom)
 
-    assert len(slept) == 1
-    assert 0 < slept[0] <= 1
+        assert client.get_country_coordinates("Germany") == []
 
+    def test_unexpected_exception_propagates(self, monkeypatch: pytest.MonkeyPatch, client: NominatimClient) -> None:
+        def boom(*a: Any, **kw: Any) -> Any:
+            raise RuntimeError("unexpected")
 
-def test_rate_limit_does_not_sleep_if_enough_time_passed(client, monkeypatch):
-    slept = []
+        monkeypatch.setattr(client, "_make_request", boom)
 
-    def fake_sleep(seconds):
-        slept.append(seconds)
-
-    monkeypatch.setattr(time, "sleep", fake_sleep)
-    client._last_request_time = time.time() - 5  # прошло 5 секунд
-
-    client._rate_limit()
-
-    assert slept == []
-
-
-# from unittest.mock import Mock, patch
-#
-# import pytest
-# import requests
-#
-# from src.nominatim import NominatimClient
-#
-#
-# class TestNominatimClient:
-#     """Тесты для клиента Nominatim."""
-#
-#     @pytest.fixture
-#     def client(self) -> NominatimClient:
-#         """Фикстура, создающая экземпляр клиента."""
-#         return NominatimClient()
-#
-#     def test_init(self, client: NominatimClient) -> None:
-#         """Проверка инициализации клиента."""
-#         assert client.base_url == "https://nominatim.openstreetmap.org"
-#         assert client.endpoint == "/search"
-#         assert client.headers == {"User-Agent": "MyAircraftTracker/1.0 (tyrandr@list.ru)"}
-#         assert isinstance(client.session, type(requests.Session()))  # не импортировано, но можно проверить тип
-#         assert client._last_request_time == 0.0
-#
-#     def test_rate_limit(self, client: NominatimClient) -> None:
-#         """Проверка ограничения частоты запросов: между вызовами должно быть не менее 1 секунды."""
-#         with patch("time.time") as mock_time, patch("time.sleep") as mock_sleep:
-#             # первый вызов: last_request_time = 0, разница >= 1, спим 0
-#             mock_time.return_value = 100.0
-#             client._last_request_time = 0.0
-#             client._rate_limit()
-#             mock_sleep.assert_not_called()
-#             assert client._last_request_time == 100.0
-#
-#             # второй вызов: разница меньше 1 секунды (текущее время 100.5)
-#             mock_time.return_value = 100.5
-#             client._rate_limit()
-#             # должно быть вызвано time.sleep(1 - (100.5 - 100.0)) = 0.5
-#             mock_sleep.assert_called_once_with(0.5)
-#             assert client._last_request_time == 100.5
-#
-#             # третий вызов: разница больше 1 секунды (101.8)
-#             mock_time.return_value = 101.8
-#             client._rate_limit()
-#             # спим 0
-#             assert mock_sleep.call_count == 1  # только один вызов sleep остаётся
-#             assert client._last_request_time == 101.8
-#
-#     def test_get_data_success(self, client: NominatimClient) -> None:
-#         """get_data возвращает JSON при успешном запросе."""
-#         mock_response = Mock()
-#         mock_response.json.return_value = {"test": "data"}
-#         mock_response.raise_for_status.return_value = None
-#
-#         with patch.object(client.session, "get", return_value=mock_response) as mock_get:
-#             result = client.get_data(params={"q": "test"})
-#
-#         mock_get.assert_called_once_with("https://nominatim.openstreetmap.org/search", params={"q": "test"})
-#         assert result == {"test": "data"}
-#
-#     def test_get_data_http_error(self, client: NominatimClient) -> None:
-#         """get_data пробрасывает исключение при HTTP ошибке."""
-#         mock_response = Mock()
-#         mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError("404")
-#
-#         with patch.object(client.session, "get", return_value=mock_response):
-#             with pytest.raises(requests.exceptions.HTTPError):
-#                 client.get_data()
-#
-#     def test_get_country_coordinates_single_country(self, client: NominatimClient) -> None:
-#         """Для одной страны возвращается список с boundingbox."""
-#         mock_data = [{"boundingbox": ["40.0", "50.0", "20.0", "30.0"]}]
-#
-#         with patch.object(client, "_make_request", return_value=mock_data) as mock_request:
-#             result = client.get_country_coordinates(["Russia"])
-#
-#         mock_request.assert_called_once_with(
-#             "search", {"q": "Russia", "format": "json", "limit": 1}, headers=client.headers
-#         )
-#         assert result == [["40.0", "50.0", "20.0", "30.0"]]
-#
-#     def test_get_country_coordinates_multiple_countries(self, client: NominatimClient) -> None:
-#         """
-#         При нескольких странах возвращается только первый (из-за бага в коде).
-#         В текущей реализации return находится внутри цикла, поэтому обрабатывается только первая страна.
-#         """
-#         mock_data1 = [{"boundingbox": ["box1"]}]
-#         mock_data2 = [{"boundingbox": ["box2"]}]
-#
-#         with patch.object(client, "_make_request", side_effect=[mock_data1, mock_data2]) as mock_request:
-#             result = client.get_country_coordinates(["Russia", "USA"])
-#
-#         # Должен быть вызван только один раз, так как после первого return функция завершается
-#         mock_request.assert_called_once_with(
-#             "search", {"q": "Russia", "format": "json", "limit": 1}, headers=client.headers
-#         )
-#         assert result == [["box1"]]
-#
-#     def test_get_country_coordinates_empty_list_input(self, client: NominatimClient) -> None:
-#         """При пустом списке стран возвращается пустой список."""
-#         with patch.object(client, "_make_request") as mock_request:
-#             result = client.get_country_coordinates([])
-#
-#         mock_request.assert_not_called()
-#         assert result == []
-#
-#     def test_get_country_coordinates_network_error(self, client: NominatimClient) -> None:
-#         """При ошибке запроса (возвращается строка) возвращается пустой список."""
-#         with patch.object(client, "_make_request", return_value="Проверьте соединение с интернетом!"):
-#             result = client.get_country_coordinates(["Russia"])
-#
-#         assert result == []
-#
-#     def test_get_country_coordinates_index_error(self, client: NominatimClient) -> None:
-#         """Если API вернул пустой список (нет данных), возвращается пустой список."""
-#         with patch.object(client, "_make_request", return_value=[]):
-#             result = client.get_country_coordinates(["Russia"])
-#
-#         assert result == []
-#
-#     def test_get_country_coordinates_key_error(self, client: NominatimClient) -> None:
-#         """Если в ответе нет ключа 'boundingbox', возвращается пустой список."""
-#         with patch.object(client, "_make_request", return_value=[{"other": "data"}]):
-#             result = client.get_country_coordinates(["Russia"])
-#
-#         assert result == []
-#
-#     def test_get_country_coordinates_multiple_errors(self, client: NominatimClient) -> None:
-#         """
-#         Если для нескольких стран первая возвращает ошибку, функция завершится с пустым списком.
-#         (из-за раннего return в except)
-#         """
-#         with patch.object(client, "_make_request", side_effect=ValueError):
-#             result = client.get_country_coordinates(["Russia", "USA"])
-#
-#         assert result == []
+        with pytest.raises(RuntimeError):
+            client.get_country_coordinates("Germany")
