@@ -1,4 +1,5 @@
 from datetime import datetime
+
 from data_countries import list_countries
 from database_utils import create_tables, insert_data_to_db
 from manadger import DBManager
@@ -24,7 +25,7 @@ def hello_by_current_time() -> str:
 def country_for_coord(countries: list) -> list:
     """Функция для ввода стран пользователем"""
     for i in range(0, len(countries), 9):
-        print(countries[i: (9 + i)])
+        print(countries[i : (9 + i)])
     country_user = []
     while True:
         print("Для прекращения ввода введите цифру 0")
@@ -81,7 +82,7 @@ def main():
             f"{row['country'] or '—'}"
         )
 
-    print(f'\nСредняя скорость: {manager.get_avg_speed()}')
+    print(f"\nСредняя скорость: {manager.get_avg_speed()}")
 
     print("\nСамолёты быстрее среднего:")
     for row in manager.get_aeroplanes_with_higher_speed()[:10]:
@@ -90,6 +91,7 @@ def main():
     print("\nС ключевыми символами 'A'в позывном :")
     for row in manager.get_aeroplanes_with_keyword("A")[:10]:
         print(f'  {row["callsign"]}')
+    return f"Завершение программы."
 
 
 if __name__ == "__main__":
