@@ -46,25 +46,27 @@
 SerchInformationWithConectionDataBase/
 
 ├── src/
-│   ├── __init__.py
-│   ├── aircrafts.py         # модель Aircraft
-│   ├── base_api.py          # базовый класс APIClient
-│   ├── database_utils.py
-│   ├── manadger.py          # класс DBManager — запросы к БД
-│   ├── nominatim.py         # клиент Nominatim
-│   └── openSky_network.py   # клиент OpenSky Network
+│ ├── __init__.py
+│ ├── aircrafts.py              # модель Aircraft
+│ ├── base_api.py               # базовый класс APIClient
+│ ├── database_utils.py
+│ ├── manadger.py               # класс DBManager — запросы к БД
+│ ├── nominatim.py              # клиент Nominatim
+│ └── openSky_network.py        # клиент OpenSky Network
 ├── test/
-│   ├── conftest.py          # общие фикстуры
-│   ├── test_aircrafts.py
-│   ├── test_base_api.py
-│   ├── test_database_utils.py
-│   ├── test_nominatim.py
-│   └── test_openSky_network.py
-├── pyproject.toml           # зависимости и конфиги (poetry, mypy, pytest, black, isort)
-├── .env                     # секреты (не коммитится)
-├── .env.example             # шаблон переменных окружения
-├── data_countries.py        # список доступных стран
-├── main.py                  # точка входа, сценарий работы программы
+│ ├── __init__.py
+│ ├── conftest.py               # общие фикстуры
+│ ├── test_aircrafts.py
+│ ├── test_base_api.py
+│ ├── test_database_utils.py
+│ ├── test_manadger.py 
+│ ├── test_nominatim.py
+│ └── test_openSky_network.py
+├── pyproject.toml              # зависимости и конфиги (poetry, mypy, pytest, black, isort)
+├── .env                        # секреты (не коммитится)
+├── .env.example                # шаблон переменных окружения
+├── data_countries.py           # список доступных стран
+├── main.py                     # точка входа, сценарий работы программы
 └── README.md
 ```
 
