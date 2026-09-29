@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 import psycopg2
 import pytest
 
-import manadger as manadger_module
+from src import manadger
 from src.manadger import DBManager
 
 # env vars нужны, чтобы src.database_utils.conn_params импортировался
@@ -120,7 +120,7 @@ class TestInit:
 
         DBManager()  # params=None → берётся conn_params
 
-        assert captured == manadger_module.conn_params
+        assert captured == manadger.conn_params
 
     def test_stores_connection(self, monkeypatch: pytest.MonkeyPatch, fake_conn: FakeConnection) -> None:
         monkeypatch.setattr(psycopg2, "connect", lambda **kwargs: fake_conn)
